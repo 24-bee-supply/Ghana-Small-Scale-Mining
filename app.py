@@ -164,45 +164,45 @@ def server(input: Inputs, output: Outputs, session: Session):
         )
 
         # Planet basemap (as fallback/reference)
-        api_key = "PLAKa82bdaf836f64dc68c898cd3a363101c"
-        planet_url = (
-            "https://tiles.planet.com/basemaps/v1/planet-tiles/"
-            "global_monthly_2024_01_mosaic/gmap/{z}/{x}/{y}.png"
-            f"?api_key={api_key}"
-        )
-        folium.TileLayer(
-            planet_url, 
-            name="Planet Basemap", 
-            attr="Planet Labs",
-            overlay=False,
-            control=True, 
-            show=False
-        ).add_to(m)
+        api_key = os.environ.get('PLANET_API_KEY', '')
 
-        # --- Satellite Image Overlays -------------------------------------
-        # Create a feature group for satellite images
+
+        if api_key:
+            planet_url = (
+                "https://tiles.planet.com/basemaps/v1/planet-tiles/"
+                "global_monthly_2024_01_mosaic/gmap/{z}/{x}/{y}.png"
+                f"?api_key={api_key}"
+            )
+            folium.TileLayer(
+                planet_url, 
+                name="Planet Basemap", 
+                attr="Planet Labs",
+                overlay=False,
+                control=True, 
+                show=False
+            ).add_to(m)
+
+
         satellite_grp = folium.FeatureGroup(name="Satellite Images (High-Res)", show=False)
-        
+
         images_added = 0
-        
+
         # Add each satellite image as an overlay
         for image_name, bounds_data in satellite_bounds.items():
+            # Build the GitHub URL directly
             # Try different resolution options
-            img_path = None
+            img_url = None
             res_label = None
             
             # Check for different resolution files
             for res, label in [("med", "Medium"), ("low", "Low"), ("", "Original")]:
                 suffix = f"_{res}" if res else ""
-                test_path = os.path.join(SATELLITE_PNG_DIR, f"{image_name}{suffix}.png")
-                if os.path.exists(test_path):
-                    img_path = test_path
-                    res_label = label
-                    break
-            
-            if not img_path:
-                print(f"Warning: No image found for {image_name}")
-                continue
+                filename = f"{image_name}{suffix}.png"
+                img_url = f"https://raw.githubusercontent.com/24-bee-supply/Ghana-Small-Scale-Mining/png-hosting/www/{filename}"
+                res_label = label
+                # For GitHub URLs, we assume the medium resolution exists
+                # You could add a check here if needed
+                break
             
             # Create bounds array for Folium
             img_bounds = [
@@ -210,21 +210,15 @@ def server(input: Inputs, output: Outputs, session: Session):
                 [bounds_data['north'], bounds_data['east']]
             ]
             
-            print(f"Adding image: {img_path}")
+            print(f"Loading image from GitHub: {img_url}")
             print(f"  UTM bounds: N:{bounds_data['north_utm']:.1f}, S:{bounds_data['south_utm']:.1f}, E:{bounds_data['east_utm']:.1f}, W:{bounds_data['west_utm']:.1f}")
             print(f"  WGS84 bounds: {img_bounds}")
             
-            # Method 1: Try with base64 encoding (more reliable for local files)
             try:
-                with open(img_path, 'rb') as f:
-                    img_data = f.read()
-                    img_base64 = base64.b64encode(img_data).decode()
-                    img_url = f"data:image/png;base64,{img_base64}"
-                
                 img_overlay = raster_layers.ImageOverlay(
                     image=img_url,
                     bounds=img_bounds,
-                    opacity=0.8,  # Slightly transparent to see basemap
+                    opacity=0.8,
                     name=f"Sat: {image_name[:15]}... ({res_label})",
                     interactive=True,
                     cross_origin=False
@@ -233,24 +227,8 @@ def server(input: Inputs, output: Outputs, session: Session):
                 images_added += 1
                 
             except Exception as e:
-                print(f"Error adding image {img_path}: {e}")
-                # Fallback: try with relative path from www
-                try:
-                    # For Shiny, use relative path from www directory
-                    relative_path = os.path.basename(img_path)
-                    
-                    img_overlay = raster_layers.ImageOverlay(
-                        image=relative_path,  # Just the filename, Shiny serves from www
-                        bounds=img_bounds,
-                        opacity=0.8,
-                        name=f"Sat: {image_name[:15]}... ({res_label})",
-                        interactive=True
-                    )
-                    img_overlay.add_to(satellite_grp)
-                    images_added += 1
-                except Exception as e2:
-                    print(f"Fallback also failed: {e2}")
-        
+                print(f"Error adding image from {img_url}: {e}")
+
         print(f"Total images added: {images_added}")
         satellite_grp.add_to(m)
 
